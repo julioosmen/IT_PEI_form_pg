@@ -354,72 +354,88 @@ if seleccion:
 if "modo" in st.session_state and seleccion:
     codigo = seleccion.split(" - ")[0].strip()
 
+    # 4) Normalizador de código (robusto)
+    def normalizar_codigo(x):
+        if pd.isna(x) or x is None:
+            return ""
+        try:
+            return str(int(float(x)))
+        except Exception:
+            return str(x).strip()
+
     # ================================
-    # MODO: HISTORIAL
+    # MODO: HISTORIAL (POSTGRES)
     # ================================
     if st.session_state["modo"] == "historial":
-        try:
-            # 1) Leer historial desde SharePoint
-            historial_raw = read_excel_sheet_from_sharepoint(st.secrets)
-    
-            # 2) Adaptar columnas SharePoint -> estándar de la app
-            historial = adaptar_historial_sharepoint(historial_raw)
-    
-            # 3) Validación mínima
-            if "codigo" not in historial.columns:
-                st.error("❌ El historial no tiene la columna clave 'codigo' (Id_UE).")
-                st.write("Columnas detectadas:", historial.columns.tolist())
-                st.stop()
-    
-            # 4) Normalizador de código (robusto)
-            def normalizar_codigo(x):
-                if pd.isna(x) or x is None:
-                    return ""
-                try:
-                    return str(int(float(x)))
-                except Exception:
-                    return str(x).strip()
-    
-        except Exception as e:
-            st.error(f"❌ Error al leer el historial desde SharePoint: {e}")
-            st.stop()
-    
-        # 5) Filtrar historial por el código seleccionado (SIN crear columna extra)
         codigo_norm = normalizar_codigo(codigo)
-    
-        df_historial = historial[
-            historial["codigo"].apply(normalizar_codigo) == codigo_norm
-        ].copy()
-    
+
+        try:
+            # 1) Leer historial desde Postgres filtrado por Id_UE (SIN columna extra)
+            #    Importante: aquí el equivalente de tu columna "codigo" es "id_ue"
+            query = """
+                SELECT
+                  anio,
+                  ng1,
+                  ng2,
+                  fecha_recepcion,
+                  periodo_pei,
+                  vigencia,
+                  tipo_pei,
+                  estado,
+                  responsable_institucional,
+                  cantidad_revisiones,
+                  fecha_derivacion,
+                  etapas_revision,
+                  comentario_adicional_emisor_it,
+                  articulacion,
+                  expediente,
+                  fecha_it,
+                  numero_it,
+                  fecha_oficio,
+                  numero_oficio,
+                  created_at
+                FROM it_pei_historial
+                WHERE id_ue = %(id_ue)s
+                ORDER BY fecha_recepcion DESC NULLS LAST, created_at DESC
+            """
+
+            df_historial = pd.read_sql(query, con=engine, params={"id_ue": codigo_norm})
+
+        except Exception as e:
+            st.error(f"❌ Error al consultar el historial desde Postgres: {e}")
+            st.stop()
+
         st.write("Filas encontradas para este pliego:", len(df_historial))
-    
+
         if df_historial.empty:
             st.info("No existe historial para este pliego (según la clave de comparación).")
-    
+
         else:
             # 6) Preparar fecha para identificar último registro
             if "fecha_recepcion" in df_historial.columns:
                 df_historial["fecha_recepcion"] = pd.to_datetime(
                     df_historial["fecha_recepcion"], errors="coerce"
                 )
-    
-            # 7) Mostrar últimas filas
+
+            # 7) Mostrar últimas filas (ya vienen ordenadas DESC, pero conservamos tu lógica)
             st.dataframe(
                 df_historial.tail(5),
                 use_container_width=True,
                 hide_index=True
             )
-    
+
             # 8) Detectar último registro
+            #    Nota: la consulta ya ordena por fecha_recepcion DESC y created_at DESC.
+            #    Aun así, dejamos tu fallback.
             if "fecha_recepcion" in df_historial.columns:
                 ultimo = df_historial.sort_values(
                     "fecha_recepcion", ascending=False
                 ).iloc[0]
             else:
-                ultimo = df_historial.iloc[-1]
-    
+                ultimo = df_historial.iloc[0]
+
             st.success("Último registro encontrado.")
-    
+
             # 9) Cargar último registro al formulario
             colx, coly = st.columns([1, 2])
             with colx:
@@ -428,7 +444,7 @@ if "modo" in st.session_state and seleccion:
                     type="primary"
                 ):
                     init_form_state()
-                    set_form_state_from_row(ultimo)
+                    set_form_state_from_row(ultimo)  # usa tus keys actuales
                     st.session_state["modo"] = "nuevo"
                     st.rerun()
 
