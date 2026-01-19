@@ -6,8 +6,7 @@ import os
 import base64
 from datetime import datetime
 from textwrap import dedent
-#from sharepoint_excel import read_excel_sheet_from_sharepoint, append_row_to_sharepoint_excel, norm_key
-#from adapters.historial_sharepoint import adaptar_historial_sharepoint
+from sqlalchemy import create_engine
 
 
 def guardar_en_historial_excel(nuevo: dict, path: str):
@@ -347,6 +346,7 @@ if seleccion:
             reset_form_state()
             st.rerun()
 
+engine = create_engine(st.secrets["postgres"]["url"], pool_pre_ping=True)
 
 # ================================
 # Procesamiento según opción
