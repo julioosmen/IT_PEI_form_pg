@@ -6,6 +6,7 @@ import base64
 from datetime import datetime
 from textwrap import dedent
 from sqlalchemy import create_engine
+from urllib.parse import quote_plus
 
 
 def guardar_en_historial_excel(nuevo: dict, path: str):
@@ -47,8 +48,6 @@ def guardar_en_historial_excel(nuevo: dict, path: str):
 # =====================================
 # ✅ PARTE INTEGRADA
 # =====================================
-HISTORIAL_PATH = "data/historial_it_pei.xlsx"
-
 FORM_DEFAULTS = {
     "tipo_pei": "Formulado",
     "etapa_revision": "IT Emitido",
@@ -70,7 +69,16 @@ FORM_DEFAULTS = {
 FORM_STATE_KEY = "pei_form_data"
 
 def init_form_state():
-    st.session_state.setdefault(FORM_STATE_KEY, FORM_DEFAULTS.copy())
+    """
+    Inicializa el diccionario del formulario SOLO si no existe.
+    No debe resetear cuando vienes de 'historial' y cargas un registro.
+    """
+    if FORM_STATE_KEY not in st.session_state or not isinstance(st.session_state[FORM_STATE_KEY], dict):
+        st.session_state[FORM_STATE_KEY] = FORM_DEFAULTS.copy()
+    else:
+        # Asegura que existan todas las keys (por si cambiaste defaults)
+        for k, v in FORM_DEFAULTS.items():
+            st.session_state[FORM_STATE_KEY].setdefault(k, v)
 
 def reset_form_state():
     st.session_state[FORM_STATE_KEY] = FORM_DEFAULTS.copy()
@@ -104,8 +112,8 @@ def set_form_state_from_row(row: pd.Series):
     # Normalizador tolerante para valores de selectbox (mayúsculas, espacios, guiones bajos)
     def norm_choice(val, mapping: dict, default: str):
         s = _safe_str(val).lower()
-        s = re.sub(r"\s+", " ", s)      # colapsa espacios múltiples
-        s = s.replace("_", " ").strip() # "en_proceso" -> "en proceso"
+        s = re.sub(r"\s+", " ", s)
+        s = s.replace("_", " ").strip()
         return mapping.get(s, default)
 
     # Mapeos a los valores EXACTOS que usa tu formulario
@@ -141,47 +149,75 @@ def set_form_state_from_row(row: pd.Series):
         "subsanacion del pliego": "Subsanación del pliego",
     }
 
+    # ============================================================
+    # Resolver nombres de columnas (Postgres vs SharePoint)
+    # ============================================================
+    # Preferimos Postgres si existe, sino caemos a nombres antiguos.
+    tipo_pei_val = row.get("tipo_pei", row.get("Tipo de PEI", FORM_DEFAULTS["tipo_pei"]))
+
+    etapa_val = row.get("etapas_revision", row.get("etapa_revision", row.get("Etapas de revisión", FORM_DEFAULTS["etapa_revision"])))
+
+    periodo_val = row.get("periodo_pei", row.get("periodo", row.get("Periodo PEI", "")))
+
+    comentario_val = row.get("comentario_adicional_emisor_it", row.get("comentario", row.get("Comentario adicional/ Emisor de I.T", "")))
+
+    # ============================================================
     # --- CARGA NORMALIZADA ---
+    # ============================================================
     form["tipo_pei"] = norm_choice(
-        row.get("tipo_pei", FORM_DEFAULTS["tipo_pei"]),
+        tipo_pei_val,
         tipo_pei_map,
         FORM_DEFAULTS["tipo_pei"]
     )
 
     form["etapa_revision"] = norm_choice(
-        row.get("etapa_revision", FORM_DEFAULTS["etapa_revision"]),
+        etapa_val,
         etapa_map,
         FORM_DEFAULTS["etapa_revision"]
     )
 
-    form["fecha_recepcion"] = _safe_date(row.get("fecha_recepcion"))
-    form["articulacion"] = _safe_str(row.get("articulacion", ""))
-    form["fecha_derivacion"] = _safe_date(row.get("fecha_derivacion"))
-    form["periodo"] = _safe_str(row.get("periodo", ""))
-    form["cantidad_revisiones"] = _safe_int(row.get("cantidad_revisiones", 0))
-    form["comentario"] = _safe_str(row.get("comentario", ""))
+    form["fecha_recepcion"] = _safe_date(row.get("fecha_recepcion", row.get("Fecha de recepción")))
+    form["articulacion"] = _safe_str(row.get("articulacion", row.get("Articulación", "")))
+    form["fecha_derivacion"] = _safe_date(row.get("fecha_derivacion", row.get("Fecha de derivación")))
+
+    form["periodo"] = _safe_str(periodo_val)
+    form["cantidad_revisiones"] = _safe_int(row.get("cantidad_revisiones", row.get("Cantidad de revisiones", 0)))
+    form["comentario"] = _safe_str(comentario_val)
 
     form["vigencia"] = norm_choice(
-        row.get("vigencia", FORM_DEFAULTS["vigencia"]),
+        row.get("vigencia", row.get("Vigencia", FORM_DEFAULTS["vigencia"])),
         vigencia_map,
         FORM_DEFAULTS["vigencia"]
     )
 
-    # ESTE ES EL CAMBIO CLAVE PARA TU BUG:
+    # ✅ Mantiene tu fix del bug: estado correctamente cargado desde historial
     form["estado"] = norm_choice(
-        row.get("estado", FORM_DEFAULTS["estado"]),
+        row.get("estado", row.get("Estado", FORM_DEFAULTS["estado"])),
         estado_map,
         FORM_DEFAULTS["estado"]
     )
 
-    form["expediente"] = _safe_str(row.get("expediente", ""))
-    form["fecha_it"] = _safe_date(row.get("fecha_it"))
-    form["numero_it"] = _safe_str(row.get("numero_it", ""))
-    form["fecha_oficio"] = _safe_date(row.get("fecha_oficio"))
-    form["numero_oficio"] = _safe_str(row.get("numero_oficio", ""))
+    form["expediente"] = _safe_str(row.get("expediente", row.get("Expediente", "")))
+    form["fecha_it"] = _safe_date(row.get("fecha_it", row.get("Fecha de I.T")))
+    form["numero_it"] = _safe_str(row.get("numero_it", row.get("Número de I.T", "")))
+    form["fecha_oficio"] = _safe_date(row.get("fecha_oficio", row.get("Fecha Oficio", row.get("Fecha del Oficio"))))
+    form["numero_oficio"] = _safe_str(row.get("numero_oficio", row.get("Número Oficio", row.get("Número del Oficio", ""))))
 
     st.session_state[FORM_STATE_KEY] = form
 
+@st.cache_resource
+def get_engine():
+    cfg = st.secrets["postgres"]
+    pwd = quote_plus(cfg["password"])
+    url = f'postgresql+psycopg2://{cfg["user"]}:{pwd}@{cfg["host"]}:{cfg["port"]}/{cfg["dbname"]}'
+    return create_engine(url, pool_pre_ping=True)
+
+engine = get_engine()
+
+# Confirmación de conexión (temporal)
+with engine.begin() as conn:
+    ok = conn.exec_driver_sql("SELECT 1").scalar()
+st.success(f"Conexión OK: {ok}")
 
 # =====================================
 # 🏛️ Carga y búsqueda de unidades ejecutoras
@@ -209,9 +245,6 @@ df_ue["Responsable_Institucional"] = (
 )
 
 responsables = sorted([r for r in df_ue["Responsable_Institucional"].unique() if r])
-
-# st.image("logo.png", width=160)
-#"st.title("Registro de IT del Plan Estratégico Institucional (PEI)")
 
 def get_image_base64(path):
     with open(path, "rb") as f:
@@ -345,8 +378,6 @@ if seleccion:
             reset_form_state()
             st.rerun()
 
-engine = create_engine(st.secrets["postgres"]["url"], pool_pre_ping=True)
-
 # ================================
 # Procesamiento según opción
 # ================================
@@ -365,14 +396,18 @@ if "modo" in st.session_state and seleccion:
     # ================================
     # MODO: HISTORIAL (POSTGRES)
     # ================================
+    # ================================
+    # MODO: HISTORIAL (POSTGRES)
+    # ================================
     if st.session_state["modo"] == "historial":
         codigo_norm = normalizar_codigo(codigo)
-
+    
         try:
-            # 1) Leer historial desde Postgres filtrado por Id_UE (SIN columna extra)
-            #    Importante: aquí el equivalente de tu columna "codigo" es "id_ue"
+            # 1) Leer historial desde Postgres filtrado por Id_UE
+            #    Importante: equivalente de tu columna "codigo" es "id_ue"
             query = """
                 SELECT
+                  id,  -- ✅ necesario para UPDATE
                   anio,
                   ng1,
                   ng2,
@@ -397,55 +432,68 @@ if "modo" in st.session_state and seleccion:
                 WHERE id_ue = %(id_ue)s
                 ORDER BY fecha_recepcion DESC NULLS LAST, created_at DESC
             """
-
+    
             df_historial = pd.read_sql(query, con=engine, params={"id_ue": codigo_norm})
-
+    
         except Exception as e:
             st.error(f"❌ Error al consultar el historial desde Postgres: {e}")
             st.stop()
-
+    
         st.write("Filas encontradas para este pliego:", len(df_historial))
-
+    
         if df_historial.empty:
             st.info("No existe historial para este pliego (según la clave de comparación).")
-
+    
         else:
             # 6) Preparar fecha para identificar último registro
             if "fecha_recepcion" in df_historial.columns:
                 df_historial["fecha_recepcion"] = pd.to_datetime(
                     df_historial["fecha_recepcion"], errors="coerce"
                 )
-
-            # 7) Mostrar últimas filas (ya vienen ordenadas DESC, pero conservamos tu lógica)
+    
+            # 7) Mostrar últimas filas
             st.dataframe(
                 df_historial.tail(5),
                 use_container_width=True,
                 hide_index=True
             )
-
+    
             # 8) Detectar último registro
-            #    Nota: la consulta ya ordena por fecha_recepcion DESC y created_at DESC.
-            #    Aun así, dejamos tu fallback.
+            #    Nota: la consulta ya viene ordenada DESC por fecha_recepcion y created_at.
+            #    Aun así, mantengo tu fallback.
             if "fecha_recepcion" in df_historial.columns:
                 ultimo = df_historial.sort_values(
-                    "fecha_recepcion", ascending=False
+                    ["fecha_recepcion", "created_at"], ascending=[False, False]
                 ).iloc[0]
             else:
                 ultimo = df_historial.iloc[0]
-
+    
             st.success("Último registro encontrado.")
-
-            # 9) Cargar último registro al formulario
+    
+            # 9) Cargar último registro al formulario (y habilitar modo UPDATE)
             colx, coly = st.columns([1, 2])
+    
             with colx:
                 if st.button(
                     "⬇️ Cargar último registro disponible al formulario",
                     type="primary"
                 ):
                     init_form_state()
-                    set_form_state_from_row(ultimo)  # usa tus keys actuales
+                    set_form_state_from_row(ultimo)  # tu función actual
+    
+                    # ✅ habilita UPDATE en el modo nuevo
+                    st.session_state["edit_mode"] = True
+                    st.session_state["edit_id"] = int(ultimo["id"])
+    
                     st.session_state["modo"] = "nuevo"
                     st.rerun()
+    
+            with coly:
+                st.info(
+                    "Al cargar el último registro se abrirá el formulario en **modo actualización**.\n\n"
+                    "Campos bloqueados en actualización: **Fecha de recepción, Periodo PEI, Vigencia, Tipo de PEI, Articulación**."
+                )
+
 
     # ================================
     # MODO: NUEVO (POSTGRES) + UPDATE con campos en solo lectura
