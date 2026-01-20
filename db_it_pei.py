@@ -1,11 +1,14 @@
 from __future__ import annotations
 from typing import Any, Dict, Optional
 from sqlalchemy import create_engine, text
+from urllib.parse import quote_plus
+
 import pandas as pd
 
-
-def get_engine(secrets):
-    url = secrets["postgres"]["url"]
+def get_engine():
+    cfg = st.secrets["postgres"]
+    pwd = quote_plus(cfg["password"])
+    url = f'postgresql+psycopg2://{cfg["user"]}:{pwd}@{cfg["host"]}:{cfg["port"]}/{cfg["dbname"]}'
     return create_engine(url, pool_pre_ping=True)
 
 
