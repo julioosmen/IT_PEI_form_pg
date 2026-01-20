@@ -448,31 +448,48 @@ if "modo" in st.session_state and seleccion:
                     st.rerun()
 
     # ================================
-    # MODO: NUEVO
+    # MODO: NUEVO (POSTGRES) + UPDATE con campos en solo lectura
+    # Campos bloqueados en UPDATE: Fecha de recepción, Periodo PEI, Vigencia, Tipo de PEI, Articulación
     # ================================
     elif st.session_state["modo"] == "nuevo":
-        st.subheader("📝 Crear nuevo registro PEI")
-
+        #st.subheader("📝 Crear nuevo registro PEI")
+    
         init_form_state()
         form = st.session_state[FORM_STATE_KEY]
-
+    
+        # Flags de edición (se activan cuando vienes desde Historial)
+        edit_mode = st.session_state.get("edit_mode", False)
+        edit_id = st.session_state.get("edit_id", None)
+    
+        if edit_mode and edit_id:
+            st.warning(
+                "✏️ Estás en **modo actualización**. "
+                "Los campos: **Fecha de recepción, Periodo PEI, Vigencia, Tipo de PEI y Articulación** "
+                "se muestran en **solo lectura** para proteger el historial."
+            )
+        else:
+            st.info("Modo **nuevo registro**: al guardar se insertará una nueva fila en Postgres.")
+    
         with st.form("form_pei"):
-
+    
             st.write("## Datos de identificación y revisión")
-
+    
             col1, col2, col3, col4 = st.columns([1, 1, 1.3, 1])
-
+    
             with col1:
                 year_now = datetime.now().year
                 año = st.text_input("Año", value=str(year_now), disabled=True)
-
+    
                 tipo_pei_opts = ["Formulado", "Ampliado", "Actualizado"]
                 tipo_pei = st.selectbox(
                     "Tipo de PEI",
                     tipo_pei_opts,
-                    index=index_of(tipo_pei_opts, form["tipo_pei"], 0)
+                    index=index_of(tipo_pei_opts, form.get("tipo_pei"), 0),
+                    disabled=edit_mode  # 🔒 solo lectura en UPDATE
                 )
-
+                if edit_mode:
+                    st.caption("🔒 Tipo de PEI bloqueado en modo actualización")
+    
                 etapas_opts = [
                     "IT Emitido",
                     "Para emisión de IT",
@@ -484,18 +501,21 @@ if "modo" in st.session_state and seleccion:
                 etapa_revision = st.selectbox(
                     "Etapas de revisión",
                     etapas_opts,
-                    index=index_of(etapas_opts, form["etapa_revision"], 0)
+                    index=index_of(etapas_opts, form.get("etapa_revision"), 0)
                 )
-
+    
             with col2:
                 fecha_recepcion = st.date_input(
                     "Fecha de recepción",
-                    value=form["fecha_recepcion"] if form["fecha_recepcion"] else datetime.now().date()
+                    value=form["fecha_recepcion"] if form.get("fecha_recepcion") else datetime.now().date(),
+                    disabled=edit_mode  # 🔒 solo lectura en UPDATE
                 )
-
-                # 4) Ajuste: nivel desde df_ue_filtrado
+                if edit_mode:
+                    st.caption("🔒 Fecha de recepción bloqueada en modo actualización")
+    
+                # Nivel desde df_ue_filtrado
                 nivel = df_ue_filtrado.loc[df_ue_filtrado["codigo"] == codigo, "NG"].values[0]
-
+    
                 if nivel == "Gobierno regional":
                     opciones_articulacion = ["PEDN 2050", "PDRC"]
                 elif nivel == "Gobierno nacional":
@@ -504,136 +524,169 @@ if "modo" in st.session_state and seleccion:
                     opciones_articulacion = ["PEDN 2050", "PDRC", "PDLC Provincial", "PDLC Distrital"]
                 else:
                     opciones_articulacion = []
-
+    
                 articulacion = st.selectbox(
                     "Articulación",
                     opciones_articulacion,
-                    index=index_of(opciones_articulacion, form["articulacion"], 0) if opciones_articulacion else 0
+                    index=index_of(opciones_articulacion, form.get("articulacion"), 0) if opciones_articulacion else 0,
+                    disabled=edit_mode  # 🔒 solo lectura en UPDATE
                 )
-
+                if edit_mode:
+                    st.caption("🔒 Articulación bloqueada en modo actualización")
+    
                 fecha_derivacion = st.date_input(
                     "Fecha de derivación",
-                    value=form["fecha_derivacion"] if form["fecha_derivacion"] else datetime.now().date()
+                    value=form["fecha_derivacion"] if form.get("fecha_derivacion") else datetime.now().date()
                 )
-
+    
             with col3:
                 periodo = st.text_input(
                     "Periodo PEI (ej: 2025-2027)",
-                    value=form["periodo"]
+                    value=form.get("periodo", ""),
+                    disabled=edit_mode  # 🔒 solo lectura en UPDATE (periodo_pei)
                 )
-
+                if edit_mode:
+                    st.caption("🔒 Periodo PEI bloqueado en modo actualización")
+    
                 pattern = r"^\d{4}-\d{4}$"
                 if periodo and not re.match(pattern, periodo):
                     st.error("⚠️ Formato inválido. Usa el formato: 2025-2027")
-
+    
                 cantidad_revisiones = st.number_input(
                     "Cantidad de revisiones",
                     min_value=0,
                     step=1,
-                    value=int(form["cantidad_revisiones"] or 0)
+                    value=int(form.get("cantidad_revisiones") or 0)
                 )
-
+    
                 comentario = st.text_area(
                     "Comentario adicional / Emisor de IT",
                     height=140,
-                    value=form["comentario"]
+                    value=form.get("comentario", "")
                 )
-
+    
             with col4:
                 vigencia_opts = ["Sí", "No"]
                 vigencia = st.selectbox(
                     "Vigencia",
                     vigencia_opts,
-                    index=index_of(vigencia_opts, form["vigencia"], 0)
+                    index=index_of(vigencia_opts, form.get("vigencia"), 0),
+                    disabled=edit_mode  # 🔒 solo lectura en UPDATE
                 )
-
+                if edit_mode:
+                    st.caption("🔒 Vigencia bloqueada en modo actualización")
+    
                 estado_opts = ["En proceso", "Emitido"]
                 estado = st.selectbox(
                     "Estado",
                     estado_opts,
-                    index=index_of(estado_opts, form["estado"], 0)
+                    index=index_of(estado_opts, form.get("estado"), 0)
                 )
-
+    
             st.write("## Datos del Informe Técnico")
-
+    
             colA, colB, colC = st.columns(3)
-
+    
             with colA:
-                expediente = st.text_input("Expediente (SGD)", value=form["expediente"])
-
+                expediente = st.text_input("Expediente (SGD)", value=form.get("expediente", ""))
+    
             with colB:
                 fecha_it = st.date_input(
                     "Fecha de I.T",
-                    value=form["fecha_it"] if form["fecha_it"] else datetime.now().date()
+                    value=form["fecha_it"] if form.get("fecha_it") else datetime.now().date()
                 )
                 fecha_oficio = st.date_input(
                     "Fecha del Oficio",
-                    value=form["fecha_oficio"] if form["fecha_oficio"] else datetime.now().date()
+                    value=form["fecha_oficio"] if form.get("fecha_oficio") else datetime.now().date()
                 )
-
+    
             with colC:
-                numero_it = st.text_input("Número de I.T", value=form["numero_it"])
-                numero_oficio = st.text_input("Número del Oficio", value=form["numero_oficio"])
-
+                numero_it = st.text_input("Número de I.T", value=form.get("numero_it", ""))
+                numero_oficio = st.text_input("Número del Oficio", value=form.get("numero_oficio", ""))
+    
+            # Validación para "Emitido"
             expediente_ok = bool(str(expediente).strip())
             fecha_it_ok = fecha_it is not None
             numero_it_ok = bool(str(numero_it).strip())
             puede_emitir = expediente_ok and fecha_it_ok and numero_it_ok
-
+    
             if estado == "Emitido" and not puede_emitir:
                 st.caption(
                     "⚠️ Para marcar como *Emitido* debes registrar: "
                     "Expediente (SGD), Fecha de I.T y Número de I.T."
                 )
-
-            submitted = st.form_submit_button("💾 Guardar Registro")
-
+    
+            # Label del botón según contexto
+            btn_label = "✏️ Actualizar registro" if (edit_mode and edit_id) else "💾 Guardar Registro"
+            submitted = st.form_submit_button(btn_label)
+    
             if submitted:
                 if estado == "Emitido" and not puede_emitir:
                     st.error("❌ No se puede guardar como 'Emitido'. Completa Expediente (SGD), Fecha de I.T y Número de I.T.")
                     st.stop()
-
+    
                 nombre_ue = seleccion.split(" - ")[1].strip()
-
-                # responsable ya viene del bloque de tarjeta, pero por seguridad:
                 responsable_actual = resp_sel
-
-                nuevo_sharepoint = {
-                    "codigo": codigo,
-                    "nombre": nombre_ue,
-                    "año": año,
-                    "periodo": periodo,
-                    "vigencia": vigencia,
-                    "tipo_pei": tipo_pei,
-                    "estado": estado,
-                    "responsable_institucional": responsable_actual,
-                    "cantidad_revisiones": cantidad_revisiones,
-                    "fecha_recepcion": str(fecha_recepcion),
-                    "fecha_derivacion": str(fecha_derivacion),
-                    "etapa_revision": etapa_revision,
-                    "comentario": comentario,
-                    "articulacion": articulacion,
-                    "expediente": expediente,
-                    "fecha_it": str(fecha_it),
-                    "numero_it": numero_it,
-                    "fecha_oficio": str(fecha_oficio),
-                    "numero_oficio": numero_oficio,
-                }
-
+    
                 try:
-                    sharepoint_append_row_to_excel(st.secrets, nuevo_sharepoint)
-                    st.success("✅ Registro guardado en el historial.")
+                    if edit_mode and edit_id:
+                        # UPDATE: NO incluir campos bloqueados:
+                        # fecha_recepcion, periodo_pei, vigencia, tipo_pei, articulacion
+                        cambios = {
+                            "estado": estado,
+                            "responsable_institucional": responsable_actual,
+                            "cantidad_revisiones": int(cantidad_revisiones or 0),
+                            "fecha_derivacion": fecha_derivacion,
+                            "etapas_revision": etapa_revision,  # ajusta al nombre real en tu tabla si difiere
+                            "comentario_adicional_emisor_it": comentario,
+                            "expediente": expediente,
+                            "fecha_it": fecha_it,
+                            "numero_it": numero_it,
+                            "fecha_oficio": fecha_oficio,
+                            "numero_oficio": numero_oficio,
+                        }
+    
+                        update_it_pei(engine, int(edit_id), cambios)
+                        st.success("✅ Registro actualizado en Postgres (campos bloqueados no se modificaron).")
+    
+                    else:
+                        # INSERT: incluye todo
+                        nuevo_pg = {
+                            "id_ue": str(codigo).strip(),  # ideal: usa tu normalizar_codigo(codigo)
+                            "anio": int(datetime.now().year),
+    
+                            "fecha_recepcion": fecha_recepcion,
+                            "periodo_pei": periodo,
+                            "vigencia": vigencia,
+                            "tipo_pei": tipo_pei,
+                            "articulacion": articulacion,
+    
+                            "estado": estado,
+                            "responsable_institucional": responsable_actual,
+                            "cantidad_revisiones": int(cantidad_revisiones or 0),
+                            "fecha_derivacion": fecha_derivacion,
+                            "etapas_revision": etapa_revision,
+                            "comentario_adicional_emisor_it": comentario,
+                            "expediente": expediente,
+                            "fecha_it": fecha_it,
+                            "numero_it": numero_it,
+                            "fecha_oficio": fecha_oficio,
+                            "numero_oficio": numero_oficio,
+    
+                            # opcional
+                            "created_by": st.session_state.get("usuario"),
+                        }
+    
+                        insert_it_pei(engine, nuevo_pg)
+                        st.success("✅ Registro guardado en el historial (Postgres).")
+    
+                    # post-acción: volver a historial y limpiar modo edición
                     st.session_state["modo"] = "historial"
+                    st.session_state["edit_mode"] = False
+                    st.session_state["edit_id"] = None
                     st.rerun()
+    
+                except IntegrityError:
+                    st.error("❌ No se pudo guardar/actualizar por restricción UNIQUE (duplicado).")
                 except Exception as e:
-                    st.error(f"❌ Error al guardar en el Excel: {e}")
-
-                st.write("📄 HISTORIAL_PATH:", HISTORIAL_PATH)
-                st.write("📍 Ruta absoluta:", os.path.abspath(HISTORIAL_PATH))
-
-                if os.path.exists(HISTORIAL_PATH):
-                    st.write("✅ Existe en este entorno.")
-                    st.write("🕒 Última modificación (mtime):", datetime.fromtimestamp(os.path.getmtime(HISTORIAL_PATH)))
-                    st.write("📦 Tamaño (bytes):", os.path.getsize(HISTORIAL_PATH))
-                else:
-                    st.write("❌ No existe en este entorno.")
+                    st.error(f"❌ Error al guardar/actualizar en Postgres: {e}")
