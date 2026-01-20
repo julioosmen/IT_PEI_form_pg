@@ -111,3 +111,35 @@ def search_history(engine, filters: Dict[str, Any], limit: int = 500) -> pd.Data
         df = pd.read_sql(q, conn, params=params)
 
     return df
+
+from sqlalchemy import text
+
+def update_it_pei(engine, record_id: int, changes: dict) -> None:
+    """
+    Actualiza un registro existente por PK id.
+    'changes' debe incluir solo columnas editables (no id).
+    """
+    if not record_id:
+        raise ValueError("record_id inválido para actualizar.")
+
+    # Evita actualizar columnas prohibidas
+    forbidden = {"id", "created_at"}
+    changes = {k: v for k, v in changes.items() if k not in forbidden}
+
+    if not changes:
+        raise ValueError("No hay cambios para actualizar.")
+
+    set_clause = ", ".join([f"{k} = :{k}" for k in changes.keys()])
+    q = text(f"""
+        UPDATE it_pei_historial
+        SET {set_clause}
+        WHERE id = :id
+    """)
+
+    params = dict(changes)
+    params["id"] = record_id
+
+    with engine.begin() as conn:
+        res = conn.execute(q, params)
+        if res.rowcount == 0:
+            raise ValueError("No se encontró el registro a actualizar (id no existe).")
