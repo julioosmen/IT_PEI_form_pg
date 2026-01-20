@@ -205,13 +205,6 @@ def set_form_state_from_row(row: pd.Series):
 
     st.session_state[FORM_STATE_KEY] = form
 
-@st.cache_resource
-def get_engine():
-    cfg = st.secrets["postgres"]
-    pwd = quote_plus(cfg["password"])
-    url = f'postgresql+psycopg2://{cfg["user"]}:{pwd}@{cfg["host"]}:{cfg["port"]}/{cfg["dbname"]}'
-    return create_engine(url, pool_pre_ping=True)
-
 engine = get_engine()
 
 # Confirmación de conexión (temporal)
