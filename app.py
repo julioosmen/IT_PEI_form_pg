@@ -7,7 +7,7 @@ from datetime import datetime
 from textwrap import dedent
 from sqlalchemy import create_engine
 from urllib.parse import quote_plus
-
+from db_it_pei import get_engine, fetch_last_bt_ue, insert_it_pei, search_history, update_it_pei
 
 def guardar_en_historial_excel(nuevo: dict, path: str):
     """
